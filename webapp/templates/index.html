@@ -67,8 +67,31 @@
             <input type="number" step="0.01" id="Rse" value="0.04">
           </div>
         </div>
+        <div class="row">
+          <div>
+            <label>tk (h)</label>
+            <input type="number" step="1" id="tk" value="1440">
+          </div>
+          <div>
+            <label>tu (h)</label>
+            <input type="number" step="1" id="tu" value="1440">
+          </div>
+          <div>
+            <label>Climate Preset</label>
+            <select id="climatePreset">
+              <option value="">—</option>
+              <option value="5">θe=5°C (>-8.5°C)</option>
+              <option value="-5">θe=-5°C (-8.5…-14.5°C)</option>
+              <option value="-10">θe=-10°C (<-14.5°C)</option>
+            </select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button class="btn secondary" onclick="applyClimatePreset()" type="button">Apply Preset</button>
+          </div>
+        </div>
         <div class="actions" style="margin-top:10px">
-          <button class="btn" onclick="runAnalyze()">Calculate</button>
+          <button class="btn" onclick="runAnalyze()" type="button">Calculate</button>
         </div>
       </div>
     </div>
@@ -90,7 +113,7 @@
         <canvas id="chartTemp"></canvas>
       </div>
       <div class="card">
-        <h3>p and p_sat vs Σ(μ·d)</h3>
+        <h3>p and p_sat vs Σz (m²·Pa·h/kg)</h3>
         <canvas id="chartVapor"></canvas>
       </div>
     </div>

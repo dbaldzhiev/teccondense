@@ -53,19 +53,21 @@ def temperature_profile(assembly: Assembly, climate: Climate) -> List[float]:
     return temps
 
 
-def z_profile(assembly: Assembly) -> List[float]:
-    """Return vapor diffusion thickness axis s = Σ(μ·d) at surfaces/interfaces.
+# Vapor permeability of still air at ~10°C in kg/(m·h·Pa)
+DELTA_AIR_KG_M_H_PA = 1.86e-7
 
-    - Starts at 0 at internal surface.
-    - Adds μ·d for each layer to the next interface.
-    - Returns [0, after L1, after L2, ..., after Ln] length = n_layers + 1.
+
+def z_profile(assembly: Assembly) -> List[float]:
+    """Return vapor resistance axis z = Σ(μ·d/δ_air) at surfaces/interfaces.
+
+    Units: m²·Pa·h/kg
     """
-    s = [0.0]
+    z = [0.0]
     accum = 0.0
     for layer in assembly.layers:
-        accum += layer.mu * layer.d
-        s.append(accum)
-    return s
+        accum += (layer.mu * layer.d) / DELTA_AIR_KG_M_H_PA
+        z.append(accum)
+    return z
 
 
 def thickness_axis(assembly: Assembly) -> List[float]:
@@ -132,24 +134,17 @@ def partial_pressures(climate: Climate) -> Tuple[float, float]:
 
 
 def vapor_pressure_profile(assembly: Assembly, climate: Climate) -> Tuple[List[float], List[float]]:
-    """Linear p(s) profile along s = Σ(μ·d) from p_i to p_e per (2.3).
-
-    Returns (s_axis, p_line) where lengths equal number of interfaces (n_layers + 1).
-    Units: s in m²·hPa/kg, p in Pa (internally converted to hPa for slope, then back to Pa).
-    """
-    s_axis = z_profile(assembly)
-    if not s_axis:
+    """Linear p(z) profile along z from p_i to p_e per (2.3). p in Pa, z in m²·Pa·h/kg."""
+    z_axis = z_profile(assembly)
+    if not z_axis:
         return [], []
-    p_i_pa, p_e_pa = partial_pressures(climate)
-    # Work in hPa for consistency with classic z units; convert back to Pa at the end.
-    p_i = p_i_pa / 100.0
-    p_e = p_e_pa / 100.0
-    s_total = s_axis[-1]
-    if s_total == 0:
-        return s_axis, [p_i_pa for _ in s_axis]
-    p_line_hPa = [p_i + (p_e - p_i) * (s / s_total) for s in s_axis]
-    p_line_pa = [p * 100.0 for p in p_line_hPa]
-    return s_axis, p_line_pa
+    p_i, p_e = partial_pressures(climate)
+    z_total = z_axis[-1]
+    if z_total == 0:
+        return z_axis, [p_i for _ in z_axis]
+    g0 = (p_i - p_e) / z_total  # kg/(m²·h)
+    p_line = [p_i - g0 * z for z in z_axis]
+    return z_axis, p_line
 
 
 def saturation_pressure_profile(temps: List[float]) -> List[float]:
@@ -226,6 +221,116 @@ def condensate_amount(p_line: List[float], p_sat_line: List[float], z_axis: List
     return total
 
 
+def glaser_profile(assembly: Assembly, climate: Climate) -> Dict[str, object]:
+    """Construct Glaser-style condensation-limited p(z) with zones and slopes.
+
+    Returns dict keys: z_axis, p_sat, p_linear, z_final, p_final, zones[{start_z,end_z,g_before,g_after}]
+    """
+    z_axis, p_lin = vapor_pressure_profile(assembly, climate)
+    temps = temperature_profile(assembly, climate)
+    p_sat = saturation_pressure_profile(temps)
+    if not z_axis:
+        return {"z_axis": [], "p_sat": [], "p_linear": [], "z_final": [], "p_final": [], "zones": []}
+
+    # Differences at interfaces
+    diff = [pl - ps for pl, ps in zip(p_lin, p_sat)]
+    # Find merged condensation intervals [a,b]
+    intervals = []  # type: List[Tuple[float, float]]
+    for i in range(len(z_axis) - 1):
+        z0, z1 = z_axis[i], z_axis[i + 1]
+        d0, d1 = diff[i], diff[i + 1]
+        if d0 > 0 and d1 > 0:
+            if intervals and abs(intervals[-1][1] - z0) < 1e-12:
+                intervals[-1] = (intervals[-1][0], z1)
+            else:
+                intervals.append((z0, z1))
+        elif d0 <= 0 < d1:
+            # enter zone between z0..z1
+            t = 0.0 if (d1 - d0) == 0 else (-d0) / (d1 - d0)
+            za = z0 + t * (z1 - z0)
+            intervals.append((za, z1))
+        elif d0 > 0 >= d1:
+            # leave zone
+            t = 0.0 if (d1 - d0) == 0 else (-d0) / (d1 - d0)
+            zb = z0 + t * (z1 - z0)
+            if intervals:
+                a, _ = intervals[-1]
+                intervals[-1] = (a, zb)
+            else:
+                intervals.append((z0, zb))
+
+    # Merge overlaps
+    merged: List[Tuple[float, float]] = []
+    for a, b in intervals:
+        if a > b:
+            a, b = b, a
+        if not merged:
+            merged.append((a, b))
+        else:
+            pa, pb = merged[-1]
+            if a <= pb + 1e-12:
+                merged[-1] = (pa, max(pb, b))
+            else:
+                merged.append((a, b))
+
+    if not merged:
+        return {"z_axis": z_axis, "p_sat": p_sat, "p_linear": p_lin, "z_final": z_axis, "p_final": p_lin, "zones": []}
+
+    def interp(zq: float, zs: List[float], arr: List[float]) -> float:
+        if zq <= zs[0]:
+            return arr[0]
+        if zq >= zs[-1]:
+            return arr[-1]
+        for i in range(1, len(zs)):
+            if zq <= zs[i]:
+                z0, z1 = zs[i - 1], zs[i]
+                a0, a1 = arr[i - 1], arr[i]
+                t = 0.0 if (z1 - z0) == 0 else (zq - z0) / (z1 - z0)
+                return a0 + t * (a1 - a0)
+        return arr[-1]
+
+    zones_out: List[Dict[str, float]] = []
+    z_final: List[float] = [z_axis[0]]
+    p_final: List[float] = [p_lin[0]]
+
+    # Compute slopes and assemble piecewise
+    # Leftmost to first a
+    a0, b0 = merged[0]
+    p_a0 = interp(a0, z_axis, p_sat)
+    g_left = (p_final[0] - p_a0) / max(a0 - z_final[0], 1e-12)
+    if a0 > z_final[0] + 1e-12:
+        z_final.append(a0)
+        p_final.append(p_a0)
+    last_b = b0
+    p_last_b = interp(b0, z_axis, p_sat)
+    zones_out.append({"start_z": a0, "end_z": b0, "g_before": g_left, "g_after": 0.0})
+
+    # Middle segments
+    for k in range(1, len(merged)):
+        a, b = merged[k]
+        p_a = interp(a, z_axis, p_sat)
+        # linear segment from last_b to a
+        g_mid = (p_last_b - p_a) / max(a - last_b, 1e-12)
+        z_final.append(a)
+        p_final.append(p_a)
+        zones_out[-1]["g_after"] = g_mid
+        # zone [a,b]
+        p_b = interp(b, z_axis, p_sat)
+        zones_out.append({"start_z": a, "end_z": b, "g_before": g_mid, "g_after": 0.0})
+        last_b, p_last_b = b, p_b
+
+    # Rightmost from last_b to z_total to meet p_e
+    z_total = z_axis[-1]
+    p_e = p_lin[-1]
+    g_right = (p_last_b - p_e) / max(z_total - last_b, 1e-12)
+    zones_out[-1]["g_after"] = g_right
+    if z_final[-1] < z_total - 1e-12:
+        z_final.append(z_total)
+        p_final.append(p_e)
+
+    return {"z_axis": z_axis, "p_sat": p_sat, "p_linear": p_lin, "z_final": z_final, "p_final": p_final, "zones": zones_out}
+
+
 def drying_check(*args, **kwargs) -> bool:
     """Placeholder: drying feasibility during tu period.
 
@@ -233,6 +338,25 @@ def drying_check(*args, **kwargs) -> bool:
     TODO: Implement using reverse gradients and tk/tu conditions.
     """
     return True
+
+
+def moisture_limits_check(assembly: Assembly, wk_layers: List[Dict[str, float]]) -> List[Dict[str, float | bool]]:
+    """Check x_uk' = xr' + Δx_dif < x_max for each layer.
+
+    wk_layers: list of dicts with keys index, delta_x_percent from condensation_mass_and_moisture.
+    Returns list of {index, x_uk_prime, x_max, ok}.
+    """
+    out: List[Dict[str, float | bool]] = []
+    for i, layer in enumerate(assembly.layers):
+        dx = 0.0
+        for row in wk_layers:
+            if int(row.get("index", -1)) == i:
+                dx = float(row.get("delta_x_percent", 0.0))
+                break
+        x_uk = layer.xr_percent + dx
+        ok = x_uk < layer.xmax_percent
+        out.append({"index": float(i), "x_uk_prime": x_uk, "x_max": layer.xmax_percent, "ok": ok})
+    return out
 
 
 def surface_condensation_risk(assembly: Assembly, climate: Climate) -> Dict[str, float | bool]:
@@ -257,25 +381,36 @@ def surface_condensation_risk(assembly: Assembly, climate: Climate) -> Dict[str,
     if theta_s is None:
         theta_s = dew_point(climate.theta_i, climate.phi_i)
     risk = theta_si < theta_s
-    return {"theta_si": theta_si, "theta_s": theta_s, "risk": risk}
+    # External surface check
+    theta_se = temperature_profile(assembly, climate)[-1]
+    theta_s_e = None
+    if _HAS_TABLES and callable(cast(object, theta_s_tabulated)):
+        try:
+            theta_s_e = cast(object, theta_s_tabulated)(climate.theta_e, climate.phi_e)
+        except Exception:
+            theta_s_e = None
+    if theta_s_e is None:
+        theta_s_e = dew_point(climate.theta_e, climate.phi_e)
+    risk_e = theta_se < theta_s_e
+    return {"theta_si": theta_si, "theta_s": theta_s, "risk": risk, "theta_se": theta_se, "theta_s_e": theta_s_e, "risk_e": risk_e}
 
 
-def analyze(assembly: Assembly, climate: Climate) -> Dict[str, object]:
+def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_hours: float = 1440.0) -> Dict[str, object]:
     """End-to-end condensation analysis with current capabilities.
 
     Returns a dict suitable for reporting and UI consumption.
     """
     U, R_total = u_value(assembly)
     temps = temperature_profile(assembly, climate)
-    s_axis, p_line = vapor_pressure_profile(assembly, climate)
+    z_axis, p_line = vapor_pressure_profile(assembly, climate)
     p_sat = saturation_pressure_profile(temps)
-    zones = condensation_zones(p_line, p_sat, s_axis)
-    cond_proxy = condensate_amount(p_line, p_sat, s_axis)
-    # Normative periods (defaults): tk and tu in hours
-    tk = 1440.0
-    tu = 1440.0
-    wk = condensation_mass_and_moisture(assembly, climate, tk)
-    drying = drying_capacity(assembly, tu, None)
+    gp = glaser_profile(assembly, climate)
+    z_final = gp["z_final"]
+    p_final = gp["p_final"]
+    zones = gp["zones"]
+    cond_proxy = condensate_amount(p_line, p_sat, z_axis)
+    wk = condensation_mass_and_moisture(assembly, climate, tk_hours)
+    drying = drying_capacity(assembly, tu_hours, None)
     drying_ok = None
     try:
         drying_ok = (drying["capacity_kg_m2"] >= wk["Wk_total"])  # type: ignore[index]
@@ -289,8 +424,10 @@ def analyze(assembly: Assembly, climate: Climate) -> Dict[str, object]:
         "q": U * (climate.theta_i - climate.theta_e) if math.isfinite(U) else float("nan"),
         "theta_profile": temps,
         "thickness_axis": thickness_axis(assembly),
-        "vapor_axis": s_axis,
+        "vapor_axis": z_axis,
         "p_line": p_line,
+        "vapor_axis_final": z_final,
+        "p_final": p_final,
         "p_sat": p_sat,
         "zones": zones,
         "condensate_proxy": cond_proxy,
@@ -298,6 +435,7 @@ def analyze(assembly: Assembly, climate: Climate) -> Dict[str, object]:
         "Wk_layers": wk["layers"],
         "drying_capacity": drying["capacity_kg_m2"],
         "drying_ok": drying_ok,
+        "moisture_limits": moisture_limits_check(assembly, wk["layers"]),
         "surface": surface,
         "p_i": p_i,
         "p_e": p_e,
@@ -305,48 +443,42 @@ def analyze(assembly: Assembly, climate: Climate) -> Dict[str, object]:
 
 
 def condensation_mass_and_moisture(assembly: Assembly, climate: Climate, tk_hours: float) -> Dict[str, object]:
-    """Compute Wk [kg/m²] and Δx_dif per layer according to Glaser-like layer summation.
+    """Compute Wk [kg/m²] and Δx_dif per layer based on Glaser piecewise profile.
 
-    Method: for each layer segment in s-axis (Σμd), compare pressure drops of linear p(s)
-    and p_sat(T) across that layer. Excess drop implies condensation rate:
-      g_excess = max(0, Δp_line_hPa - Δp_sat_hPa) / z_layer
-      Wk_layer = g_excess * tk_hours
-      Δx_dif_layer[%] = Wk_layer / (d_layer * ρ_layer) * 100
+    Wk_total = sum_k (g_before_k - g_after_k) * tk.
+    Distributes Wk per layer proportional to overlap length of zone with the layer.
     """
-    s_axis, p_line_pa = vapor_pressure_profile(assembly, climate)
-    temps = temperature_profile(assembly, climate)
-    p_sat_pa = saturation_pressure_profile(temps)
-    # Convert to hPa to match z units
-    p_line_hPa = [p / 100.0 for p in p_line_pa]
-    p_sat_hPa = [p / 100.0 for p in p_sat_pa]
+    gp = glaser_profile(assembly, climate)
+    zones = gp.get("zones", [])
+    z_axis = z_profile(assembly)
+
+    per_layer_wk = [0.0 for _ in assembly.layers]
+    Wk_total = 0.0
+    for z in zones:
+        dz_zone = max(0.0, z["end_z"] - z["start_z"])
+        if dz_zone <= 0:
+            continue
+        g_before = z.get("g_before", 0.0)
+        g_after = z.get("g_after", 0.0)
+        Wk_rate = max(0.0, g_before - g_after)  # kg/(m²·h)
+        Wk_total += Wk_rate * tk_hours
+        for i in range(len(assembly.layers)):
+            z0, z1 = z_axis[i], z_axis[i + 1]
+            overlap = max(0.0, min(z1, z["end_z"]) - max(z0, z["start_z"]))
+            if overlap > 0 and dz_zone > 0:
+                per_layer_wk[i] += Wk_rate * tk_hours * (overlap / dz_zone)
 
     layers_out: List[Dict[str, float]] = []
-    Wk_total = 0.0
-    # Each segment i corresponds to layer i
-    nseg = min(len(assembly.layers), len(s_axis) - 1, len(p_line_hPa) - 1, len(p_sat_hPa) - 1)
-    for i in range(nseg):
-        z_layer = s_axis[i + 1] - s_axis[i]
-        if z_layer <= 0:
-            layers_out.append({
-                "index": float(i),
-                "Wk_layer": 0.0,
-                "delta_x_percent": 0.0,
-            })
-            continue
-        dp_line = max(0.0, p_line_hPa[i] - p_line_hPa[i + 1])
-        dp_sat = max(0.0, p_sat_hPa[i] - p_sat_hPa[i + 1])
-        g_excess = max(0.0, dp_line - dp_sat) / z_layer  # kg/(m² h)
-        Wk_layer = g_excess * tk_hours  # kg/m²
-        layer = assembly.layers[i]
-        dz = max(layer.d, 1e-9)
+    for i, layer in enumerate(assembly.layers):
+        Wk_layer = per_layer_wk[i]
+        dz_phys = max(layer.d, 1e-9)
         rho = max(layer.rho, 1e-9)
-        delta_x_percent = Wk_layer / (dz * rho) * 100.0
+        delta_x_percent = Wk_layer / (dz_phys * rho) * 100.0
         layers_out.append({
             "index": float(i),
             "Wk_layer": Wk_layer,
             "delta_x_percent": delta_x_percent,
         })
-        Wk_total += Wk_layer
 
     return {"Wk_total": Wk_total, "layers": layers_out}
 
@@ -360,14 +492,11 @@ def drying_capacity(assembly: Assembly, tu_hours: float, drying_climate: Optiona
     if drying_climate is None:
         drying_climate = Climate(theta_i=18.0, phi_i=65.0, theta_e=18.0, phi_e=65.0)
     p_i, p_e = partial_pressures(drying_climate)
-    # Use hPa for consistency with z units
-    p_i_hPa = p_i / 100.0
-    p_e_hPa = p_e / 100.0
-    # Total vapor resistance Σz
+    # Total vapor resistance Σz (m²·Pa·h/kg)
     s_total = z_profile(assembly)[-1] if assembly.layers else 0.0
     if s_total <= 0:
         return {"capacity_kg_m2": 0.0, "ok": False}
-    g = abs(p_i_hPa - p_e_hPa) / s_total  # kg/(m² h)
+    g = abs(p_i - p_e) / s_total  # kg/(m² h)
     capacity = g * tu_hours  # kg/m²
     # Compare with Wk from condensation period
     # Note: caller should compute Wk_total and compare; here we return capacity only.

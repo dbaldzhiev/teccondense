@@ -66,7 +66,9 @@ def analyze_api():
             theta_e=float(cl.get('theta_e', 5)),
             phi_e=float(cl.get('phi_e', 90)),
         )
-        result = analyze(assembly, climate)
+        tk = float(data.get('tk_hours', 1440))
+        tu = float(data.get('tu_hours', 1440))
+        result = analyze(assembly, climate, tk_hours=tk, tu_hours=tu)
         return jsonify({'ok': True, 'result': result})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
