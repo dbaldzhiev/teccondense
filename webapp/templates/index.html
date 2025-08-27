@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Condensation Risk Calculator</title>
+</head>
+<body>
+    <h1>Condensation Risk Calculator</h1>
+    <form method="post">
+        <h2>Layer 1</h2>
+        Name: <input type="text" name="layer_name_1" value="Layer 1"><br>
+        Thickness (m): <input type="number" step="0.01" name="layer_d_1" value="0.1"><br>
+        Lambda (W/mK): <input type="number" step="0.01" name="layer_lambda_1" value="0.04"><br>
+        Mu: <input type="number" step="1" name="layer_mu_1" value="20"><br>
+        Rho (kg/m3): <input type="number" step="1" name="layer_rho_1" value="800"><br>
+        xr (%): <input type="number" step="0.1" name="layer_xr_1" value="5"><br>
+        xmax (%): <input type="number" step="0.1" name="layer_xmax_1" value="20"><br>
+        <h2>Climate</h2>
+        Indoor Temp (°C): <input type="number" step="0.1" name="theta_i" value="20"><br>
+        Indoor RH (%): <input type="number" step="0.1" name="phi_i" value="65"><br>
+        Outdoor Temp (°C): <input type="number" step="0.1" name="theta_e" value="5"><br>
+        Outdoor RH (%): <input type="number" step="0.1" name="phi_e" value="90"><br>
+        <br>
+        <input type="submit" value="Calculate">
+    </form>
+    {% if result %}
+    <h2>Results</h2>
+    <ul>
+        <li>U-value: {{ result.U }}</li>
+        <li>Total Resistance: {{ result.R_total }}</li>
+        <li>Temperature Profile: {{ result.temp_profile }}</li>
+        <li>Z Profile: {{ result.z_profile }}</li>
+        <li>Indoor Vapor Pressure: {{ result.p_i }}</li>
+        <li>Outdoor Vapor Pressure: {{ result.p_e }}</li>
+    </ul>
+    {% endif %}
+</body>
+</html>
