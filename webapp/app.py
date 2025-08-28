@@ -65,7 +65,8 @@ def analyze_api():
         )
         tk = float(data.get('tk_hours', 1440))
         tu = float(data.get('tu_hours', 1440))
-        result = analyze(assembly, climate, tk_hours=tk, tu_hours=tu)
+        verbose = bool(data.get('verbose', False))
+        result = analyze(assembly, climate, tk_hours=tk, tu_hours=tu, verbose=verbose)
         # Add explicit climate echo for reporting convenience
         result["theta_i"] = climate.theta_i
         result["phi_i"] = climate.phi_i
