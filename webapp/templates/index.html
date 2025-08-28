@@ -109,6 +109,11 @@
 
     <div class="charts" style="margin-top:16px">
       <div class="card">
+        <h3>Assembly Diagram (Layers + θ)</h3>
+        <canvas id="chartAssembly"></canvas>
+        <div class="footer">Shaded red: condensation within layers (mapped from Σz). Interfaces are vertical lines.</div>
+      </div>
+      <div class="card">
         <h3>Temperature vs Σd (m)</h3>
         <canvas id="chartTemp"></canvas>
       </div>
@@ -245,13 +250,40 @@
         );
         const zones = r.zones || [];
         document.getElementById('zones').textContent = zones.length ? zones.map(z => `(${z.start_z.toFixed(3)} → ${z.end_z.toFixed(3)}) maxΔp=${z.max_excess_pa.toFixed(0)} Pa`).join('\n') : '—';
+        drawAssembly(r.layers || [], r.thickness_axis, r.theta_profile, r.zones || [], r.vapor_axis);
         drawTemp(r.thickness_axis, r.theta_profile);
-        drawVapor(r.vapor_axis, r.p_line, r.p_sat);
+        drawVapor(r.vapor_axis, r.p_line, r.p_sat, r.zones || [], r.vapor_axis_final, r.p_final);
       };
       function linMap(v, v0,v1, p0,p1){ return p0 + (v - v0) * (p1 - p0) / (v1 - v0 || 1); }
+      function mapZtoX(z, zAxis, xAxis){
+        if (!zAxis || !xAxis || zAxis.length !== xAxis.length) return 0;
+        if (z <= zAxis[0]) return xAxis[0];
+        if (z >= zAxis[zAxis.length-1]) return xAxis[xAxis.length-1];
+        for (let i=1;i<zAxis.length;i++){
+          if (z <= zAxis[i]){
+            const z0=zAxis[i-1], z1=zAxis[i]; const x0=xAxis[i-1], x1=xAxis[i];
+            const t=(z - z0)/((z1 - z0)||1); return x0 + t*(x1 - x0);
+          }
+        }
+        return xAxis[xAxis.length-1];
+      }
       function drawTemp(x, y){ const c=document.getElementById('chartTemp'); const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); const w=c.width, h=c.height; const pad=40; const xmin=Math.min(...x), xmax=Math.max(...x); const ymin=Math.min(...y), ymax=Math.max(...y); ctx.strokeStyle='#444'; ctx.strokeRect(0,0,w,h); ctx.save(); ctx.translate(pad,pad); const iw=w-2*pad, ih=h-2*pad; ctx.fillStyle='#9ca3af'; ctx.font='12px sans-serif'; ctx.fillText(`${xmin.toFixed(2)} m`,0,ih+16); ctx.fillText(`${xmax.toFixed(2)} m`,iw-60,ih+16); ctx.fillText(`${ymin.toFixed(1)}°C`,-30,ih); ctx.fillText(`${ymax.toFixed(1)}°C`,-30,10); ctx.beginPath(); for(let i=0;i<x.length;i++){ const X=linMap(x[i], xmin,xmax, 0,iw); const Y=linMap(y[i], ymin,ymax, ih,0); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);} ctx.strokeStyle='#60a5fa'; ctx.lineWidth=2; ctx.stroke(); ctx.restore(); }
-      function drawVapor(x, p, ps){ const c=document.getElementById('chartVapor'); const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); const w=c.width,h=c.height; const pad=40; const xmin=Math.min(...x), xmax=Math.max(...x); const all=[...p,...ps]; const ymin=Math.min(...all), ymax=Math.max(...all); ctx.strokeStyle='#444'; ctx.strokeRect(0,0,w,h); ctx.save(); ctx.translate(pad,pad); const iw=w-2*pad, ih=h-2*pad; ctx.fillStyle='#9ca3af'; ctx.font='12px sans-serif'; ctx.fillText(`${xmin.toFixed(2)}`,0,ih+16); ctx.fillText(`${xmax.toFixed(2)}`,iw-30,ih+16); ctx.fillText(`${(ymin/100).toFixed(0)} hPa`,-35,ih); ctx.fillText(`${(ymax/100).toFixed(0)} hPa`,-35,10); const plot = (arr, color) => { ctx.beginPath(); for(let i=0;i<x.length;i++){ const X=linMap(x[i], xmin,xmax,0,iw); const Y=linMap(arr[i], ymin,ymax, ih,0); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);} ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke(); };
-        plot(p, '#34d399'); plot(ps, '#f87171'); ctx.restore(); }
+      function drawVapor(x, p, ps, zones, xf, pf){ const c=document.getElementById('chartVapor'); const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); const w=c.width,h=c.height; const pad=40; const xmin=Math.min(...x), xmax=Math.max(...x); const all=[...p,...ps]; const ymin=Math.min(...all), ymax=Math.max(...all); ctx.strokeStyle='#444'; ctx.strokeRect(0,0,w,h); ctx.save(); ctx.translate(pad,pad); const iw=w-2*pad, ih=h-2*pad; ctx.fillStyle='#9ca3af'; ctx.font='12px sans-serif'; ctx.fillText(`${xmin.toFixed(2)}`,0,ih+16); ctx.fillText(`${xmax.toFixed(2)}`,iw-30,ih+16); ctx.fillText(`${(ymin/100).toFixed(0)} hPa`,-35,ih); ctx.fillText(`${(ymax/100).toFixed(0)} hPa`,-35,10); const plot = (xs, arr, color) => { ctx.beginPath(); for(let i=0;i<xs.length;i++){ const X=linMap(xs[i], xmin,xmax,0,iw); const Y=linMap(arr[i], ymin,ymax, ih,0); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);} ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke(); };
+        if (zones && zones.length){ ctx.fillStyle='rgba(248,113,113,0.15)'; zones.forEach(z => { const X0=linMap(z.start_z, xmin,xmax,0,iw); const X1=linMap(z.end_z, xmin,xmax,0,iw); ctx.fillRect(Math.min(X0,X1),0, Math.abs(X1-X0), ih); }); }
+        plot(x, ps, '#f87171');
+        plot(x, p, '#34d399');
+        if (xf && pf) plot(xf, pf, '#93c5fd');
+        ctx.restore(); }
+      function drawAssembly(layers, xAxis, temps, zones, zAxis){
+        const c=document.getElementById('chartAssembly'); const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); const w=c.width,h=c.height; const pad=40; const xmin=Math.min(...xAxis), xmax=Math.max(...xAxis); const ymin=Math.min(...temps), ymax=Math.max(...temps); ctx.strokeStyle='#444'; ctx.strokeRect(0,0,w,h); ctx.save(); ctx.translate(pad,pad); const iw=w-2*pad, ih=h-2*pad;
+        let x0=xAxis[0]||0; for (let i=1;i<xAxis.length;i++){ const x1=xAxis[i]; const X0=linMap(x0, xmin,xmax,0,iw), X1=linMap(x1, xmin,xmax,0,iw); ctx.fillStyle='rgba(255,255,255,0.05)'; ctx.fillRect(X0,0,X1-X0,ih); ctx.strokeStyle='#1f2937'; ctx.strokeRect(X0,0,X1-X0,ih); const name=layers[i-1]?.name||`L${i}`; ctx.fillStyle='#e5e7eb'; ctx.font='12px sans-serif'; ctx.fillText(`${name} (${(x1-x0).toFixed(3)} m)`, X0+6, 16); x0=x1; }
+        // interfaces
+        ctx.strokeStyle='#374151'; for (let i=0;i<xAxis.length;i++){ const X=linMap(xAxis[i], xmin,xmax,0,iw); ctx.beginPath(); ctx.moveTo(X,0); ctx.lineTo(X,ih); ctx.stroke(); }
+        // zones
+        if (zones && zones.length){ ctx.fillStyle='rgba(248,113,113,0.25)'; zones.forEach(z => { const xA=mapZtoX(z.start_z, zAxis, xAxis); const xB=mapZtoX(z.end_z, zAxis, xAxis); const XA=linMap(xA, xmin,xmax,0,iw), XB=linMap(xB, xmin,xmax,0,iw); ctx.fillRect(Math.min(XA,XB),0, Math.abs(XB-XA), ih); }); }
+        // temperature
+        ctx.beginPath(); for(let i=0;i<xAxis.length;i++){ const X=linMap(xAxis[i], xmin,xmax,0,iw); const Y=linMap(temps[i], ymin,ymax, ih,0); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);} ctx.strokeStyle='#60a5fa'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+      }
       // init with one layer
       addLayer();
     }

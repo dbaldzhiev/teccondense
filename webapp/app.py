@@ -69,6 +69,22 @@ def analyze_api():
         tk = float(data.get('tk_hours', 1440))
         tu = float(data.get('tu_hours', 1440))
         result = analyze(assembly, climate, tk_hours=tk, tu_hours=tu)
+        # Enrich with layer metadata for annotated diagrams
+        result["layers"] = [
+            {
+                "name": L.name,
+                "d": L.d,
+                "lambda_": L.lambda_,
+                "mu": L.mu,
+                "rho": L.rho,
+                "xr_percent": L.xr_percent,
+                "xmax_percent": L.xmax_percent,
+            }
+            for L in layers
+        ]
+        # Convenience aliases for axes
+        result["z_axis"] = result.get("vapor_axis", [])
+        result["x_axis"] = result.get("thickness_axis", [])
         return jsonify({'ok': True, 'result': result})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
