@@ -119,13 +119,63 @@ window.__appLoaded = true;
     const out = document.getElementById('results');
     if (!js.ok){ out.textContent = 'Error: ' + js.error; return; }
     const r = js.result;
-    out.textContent = `U=${r.U.toFixed(4)} W/m²K\n`+
-      `ΣR=${r.R_total.toFixed(4)} m²K/W, q=${r.q.toFixed(3)} W/m²\n`+
-      `Surface risk: ${r.surface.risk ? 'Yes' : 'No'} (θsi=${r.surface.theta_si.toFixed(2)}°C vs θs=${r.surface.theta_s.toFixed(2)}°C) | Ext: ${r.surface.risk_e ? 'Yes' : 'No'} (θse=${r.surface.theta_se.toFixed(2)}°C vs θs,e=${r.surface.theta_s_e.toFixed(2)}°C)\n`+
-      `Wk_total=${r.Wk_total.toFixed(4)} kg/m² over tk=${tk.toFixed(0)}h, Drying capacity=${r.drying_capacity.toFixed(4)} kg/m² over tu=${tu.toFixed(0)}h → OK=${r.drying_ok ? 'Yes':'No'}`;
-    const zones = r.zones || [];
-    document.getElementById('zones').textContent = zones.length ? zones.map(z => `(${z.start_z.toFixed(3)} → ${z.end_z.toFixed(3)})`).join('\n') : '—';
-    drawAssembly(r.layers || [], r.thickness_axis, r.theta_profile, r.zones || [], r.vapor_axis);
+    const surfacePass = !r.surface?.risk;
+const internalCond = !!r.internal_condensation;
+const dryingPass = !!r.drying_ok;
+const badge = (label, pass) => `<span class=\"badge ${pass ? 'pass':'fail'}\">${label}: ${pass ? 'OK':'Fail'}</span>`;
+const summary = `
+  <div class=\"badge-row\">
+    ${badge('Surface', surfacePass)}
+    ${badge('Internal Condensation', !internalCond)}
+    ${badge('Drying', dryingPass)}
+  </div>`;
+const key = `
+  <div class=\"metrics\">
+    <div><div class=\"k\">U</div><div class=\"v\">${r.U.toFixed(4)} W/m²·K</div></div>
+    <div><div class=\"k\">ΣR</div><div class=\"v\">${r.R_total.toFixed(4)} m²·K/W</div></div>
+    <div><div class=\"k\">q</div><div class=\"v\">${r.q.toFixed(3)} W/m²</div></div>
+    <div><div class=\"k\">pᵢ / pₑ</div><div class=\"v\">${(r.p_i||0).toFixed(0)} / ${(r.p_e||0).toFixed(0)} Pa</div></div>
+    <div><div class=\"k\">Wk</div><div class=\"v\">${r.Wk_total.toFixed(4)} kg/m² (tk=${tk.toFixed(0)} h)</div></div>
+    <div><div class=\"k\">Drying</div><div class=\"v\">${r.drying_capacity.toFixed(4)} kg/m² (tu=${tu.toFixed(0)} h)</div></div>
+  </div>`;
+const surf = r.surface || {};
+const surfDet = `
+  <div class=\"section\">
+    <div class=\"section-title\">Surface Check</div>
+    <div class=\"mini-grid\">
+      <div>θsi</div><div>${(surf.theta_si||0).toFixed(2)} °C</div>
+      <div>θs</div><div>${(surf.theta_s||0).toFixed(2)} °C</div>
+      <div>θse</div><div>${(surf.theta_se||0).toFixed(2)} °C</div>
+      <div>θs,e</div><div>${(surf.theta_s_e||0).toFixed(2)} °C</div>
+    </div>
+  </div>`;
+const mlim = Array.isArray(r.moisture_limits) ? r.moisture_limits : [];
+const moisture = mlim.length ? (
+  `<div class=\"section\"><div class=\"section-title\">Moisture Limits</div>
+    <table class=\"table\">
+      <thead><tr><th>Layer</th><th>Δx_dif (%)</th><th>xʹᵤₖ (%)</th><th>x_max (%)</th><th>Status</th></tr></thead>
+      <tbody>
+        ${mlim.map((row,i)=>{
+          const wkL = (r.Wk_layers||[]).find(xx => parseInt(xx.index)===i);
+          const dx = wkL ? wkL.delta_x_percent : 0;
+          const ok = !!row.ok;
+          return `<tr><td>${r.layers?.[i]?.name||('L'+(i+1))}</td><td>${dx.toFixed(3)}</td><td>${row.x_uk_prime.toFixed(2)}</td><td>${row.x_max.toFixed(2)}</td><td>${ok? 'OK':'Exceeds'}</td></tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`
+) : '';
+out.innerHTML = summary + key + surfDet + moisture;const zones = r.zones || [];
+const zonesHtml = zones.length ? (
+  `<table class=\"table\"><thead><tr><th>z start</th><th>z end</th><th>x start</th><th>x end</th></tr></thead><tbody>
+    ${zones.map(z => {
+      const xa = mapZtoX(z.start_z, r.vapor_axis, r.thickness_axis);
+      const xb = mapZtoX(z.end_z, r.vapor_axis, r.thickness_axis);
+      return `<tr><td>${z.start_z.toFixed(3)}</td><td>${z.end_z.toFixed(3)}</td><td>${xa.toFixed(3)}</td><td>${xb.toFixed(3)}</td></tr>`;
+    }).join('')}
+  </tbody></table>`
+) : '-';
+document.getElementById('zones').innerHTML = zonesHtml;drawAssembly(r.layers || [], r.thickness_axis, r.theta_profile, r.zones || [], r.vapor_axis);
     drawTemp(r.thickness_axis, r.theta_profile);
     drawVapor(r.vapor_axis, r.p_line, r.p_sat, r.zones, r.vapor_axis_final, r.p_final);
   }
@@ -223,3 +273,10 @@ window.__appLoaded = true;
   // init
   window.addLayer();
 })();
+
+
+
+
+
+
+

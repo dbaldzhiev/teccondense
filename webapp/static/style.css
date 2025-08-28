@@ -14,5 +14,20 @@ input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #374151;b
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 canvas{width:100%;height:300px;background:#0b1220;border:1px solid #374151;border-radius:8px}
 .result{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
+.result#results{font-family:inherit;white-space:normal}
 .footer{opacity:.7;margin-top:12px;font-size:12px}
+
+/* Result presentation enhancements */
+.badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #374151;background:#0b1220}
+.badge.pass{border-color:#22c55e;color:#22c55e}
+.badge.fail{border-color:#ef4444;color:#ef4444}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.metrics .k{font-size:12px;color:#9ca3af}
+.metrics .v{font-weight:600}
+.section{margin-top:10px}
+.section-title{font-weight:600;margin-bottom:6px}
+.mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{border:1px solid #374151;padding:6px;font-size:13px}
 

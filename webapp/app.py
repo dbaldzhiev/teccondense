@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from condensation.core import analyze
+from condensation import report as report_mod
 from condensation.dataclasses import Layer, Assembly, Climate
 from condensation.materials import load_materials
 
@@ -65,6 +66,13 @@ def analyze_api():
         tk = float(data.get('tk_hours', 1440))
         tu = float(data.get('tu_hours', 1440))
         result = analyze(assembly, climate, tk_hours=tk, tu_hours=tu)
+        # Add explicit climate echo for reporting convenience
+        result["theta_i"] = climate.theta_i
+        result["phi_i"] = climate.phi_i
+        result["theta_e"] = climate.theta_e
+        result["phi_e"] = climate.phi_e
+        # Convenience flag for internal condensation
+        result["internal_condensation"] = bool(result.get("zones"))
         # Enrich with layer metadata for annotated diagrams
         result["layers"] = [
             {
@@ -81,6 +89,11 @@ def analyze_api():
         # Convenience aliases for axes
         result["z_axis"] = result.get("vapor_axis", [])
         result["x_axis"] = result.get("thickness_axis", [])
+        # Pre-generate a compact HTML report for the UI
+        try:
+            result["report_html"] = report_mod.report(result)
+        except Exception as _:
+            result["report_html"] = "<p>Report generation unavailable.</p>"
         return jsonify({'ok': True, 'result': result})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500

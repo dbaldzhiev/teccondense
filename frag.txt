@@ -1,0 +1,5 @@
+out.textContent = 'Error: ' + js.error; return; }
+    const r = js.result;
+    out.textContent = `U=${r.U.toFixed(4)} W/m²K\n`+
+      `ΣR=${r.R_total.toFixed(4)} m²K/W, q=${r.q.toFixed(3)} W/m²\n`+
+      `Surface risk: ${r.surface.risk ? 'Yes' : 'No'} (θsi=${r.surface.theta_si.toFixed(2)}°C vs θs=${r.surface.theta_s.toFixed(2)}°C) | Ext: ${r.surface.risk_e ? 'Yes' : 'No'} (θse=${r.surface.thet
