@@ -13,8 +13,6 @@ input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #374151;b
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 canvas{width:100%;height:300px;background:#0b1220;border:1px solid #374151;border-radius:8px}
-.result{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
-.result#results{font-family:inherit;white-space:normal}
 .footer{opacity:.7;margin-top:12px;font-size:12px}
 
 /* Result presentation enhancements */
