@@ -22,14 +22,19 @@ def u_value(assembly: Assembly) -> Tuple[float, float]:
 
 
 def temperature_profile(assembly: Assembly, climate: Climate) -> List[float]:
-    """Return temperatures at surfaces/interfaces: [theta_si, after each layer..., theta_se].
+    """Return temperatures at internal/external surfaces and layer interfaces.
 
-    - Includes surface resistances Rsi and Rse (2.4, 2.6).
-    - Length = number of layers + 1 (interfaces) + 1 (external surface) => n_layers + 1.
+    The list always begins with the internal surface temperature (θsi) and ends
+    with the external surface temperature (θse). Interfaces after each layer are
+    included in between. For constructions without layers the result is
+    ``[θsi, θse]``.
     """
     U, R_total = u_value(assembly)
     if not math.isfinite(U) or R_total == 0:
-        return [climate.theta_i] * (len(assembly.layers) + 1)
+        # Degenerate case: return at least both surface temperatures
+        temps = [climate.theta_i] * (len(assembly.layers) + 1)
+        temps.append(climate.theta_e)
+        return temps
 
     # Heat flux density (W/m^2)
     q = U * (climate.theta_i - climate.theta_e)
@@ -45,11 +50,14 @@ def temperature_profile(assembly: Assembly, climate: Climate) -> List[float]:
         theta_interface = climate.theta_i - q * R_accum
         temps.append(theta_interface)
 
-    # The last appended value corresponds to external surface after all layers (theta_se)
-    # Adjust external surface using Rse to get exactly theta_se:
-    # Recompute final external surface to ensure numerical consistency
+    # External surface temperature using Rse (θse)
     theta_se = climate.theta_e + q * assembly.Rse
-    temps[-1] = theta_se
+    if assembly.layers:
+        # Replace the last interface temperature with θse
+        temps[-1] = theta_se
+    else:
+        # No layers: append θse so both surfaces are present
+        temps.append(theta_se)
     return temps
 
 
@@ -203,22 +211,66 @@ def condensation_zones(p_line: List[float], p_sat_line: List[float], z_axis: Lis
     return zones
 
 
-def condensate_amount(p_line: List[float], p_sat_line: List[float], z_axis: List[float]) -> float:
-    """Proxy integral of excess vapor pressure over axis (Pa·axis_unit).
+def condensate_amount(
+    assembly: Assembly, climate: Climate, tk_hours: float
+) -> Dict[str, object]:
+    """Compute condensate mass ``Wk`` over period ``tk``.
 
-    NOTE: Placeholder. Normative Glaser mass Wk [kg/m²] requires layer-wise
-    flux reconstruction and tk; this function intentionally returns a proxy
-    magnitude useful for relative comparison, not a mass.
+    This implementation follows the classic Glaser construction.  The final
+    vapour pressure profile is obtained via :func:`glaser_profile` which yields
+    the vapour flux immediately before and after each condensation zone.  The
+    accumulated mass is ``(g_before - g_after) * tk`` and is distributed across
+    the overlapping layers proportionally to their share of the zone.
+
+    Parameters
+    ----------
+    assembly:
+        Layer stack under analysis.
+    climate:
+        Indoor/outdoor design conditions for the condensation period.
+    tk_hours:
+        Duration of the condensation period ``tk`` in hours.
+
+    Returns
+    -------
+    dict
+        ``{"Wk_total": float, "layers": [{"index", "Wk_layer",
+        "delta_x_percent"}]}``
     """
-    total = 0.0
-    n = min(len(p_line), len(p_sat_line), len(z_axis))
-    for i in range(1, n):
-        dz = abs(z_axis[i] - z_axis[i - 1])
-        excess0 = max(0.0, p_line[i - 1] - p_sat_line[i - 1])
-        excess1 = max(0.0, p_line[i] - p_sat_line[i])
-        area = 0.5 * (excess0 + excess1) * dz
-        total += area
-    return total
+
+    gp = glaser_profile(assembly, climate)
+    zones = gp.get("zones", [])
+    z_axis = z_profile(assembly)
+
+    per_layer_wk = [0.0 for _ in assembly.layers]
+    Wk_total = 0.0
+    for z in zones:
+        dz_zone = max(0.0, z["end_z"] - z["start_z"])
+        if dz_zone <= 0:
+            continue
+        g_before = z.get("g_before", 0.0)
+        g_after = z.get("g_after", 0.0)
+        Wk_rate = max(0.0, g_before - g_after)  # kg/(m²·h)
+        Wk_total += Wk_rate * tk_hours
+        for i in range(len(assembly.layers)):
+            z0, z1 = z_axis[i], z_axis[i + 1]
+            overlap = max(0.0, min(z1, z["end_z"]) - max(z0, z["start_z"]))
+            if overlap > 0 and dz_zone > 0:
+                per_layer_wk[i] += Wk_rate * tk_hours * (overlap / dz_zone)
+
+    layers_out: List[Dict[str, float]] = []
+    for i, layer in enumerate(assembly.layers):
+        Wk_layer = per_layer_wk[i]
+        dz_phys = max(layer.d, 1e-9)
+        rho = max(layer.rho, 1e-9)
+        delta_x_percent = Wk_layer / (dz_phys * rho) * 100.0
+        layers_out.append({
+            "index": float(i),
+            "Wk_layer": Wk_layer,
+            "delta_x_percent": delta_x_percent,
+        })
+
+    return {"Wk_total": Wk_total, "layers": layers_out}
 
 
 def glaser_profile(assembly: Assembly, climate: Climate) -> Dict[str, object]:
@@ -341,13 +393,13 @@ def drying_check(
     """Return True if drying during ``tu`` can remove condensate from ``tk``.
 
     The function first estimates the amount of condensate accumulated during the
-    condensation period ``tk`` using :func:`condensation_mass_and_moisture`.  It
+    condensation period ``tk`` using :func:`condensate_amount`.  It
     then computes the reverse vapour flow possible during the drying period
     ``tu`` via :func:`drying_capacity`.  Drying is considered adequate only when
     the drying capacity exceeds the accumulated condensate mass ``Wk_total``.
     """
 
-    wk = condensation_mass_and_moisture(assembly, climate, tk_hours)
+    wk = condensate_amount(assembly, climate, tk_hours)
     wk_total = float(wk.get("Wk_total", 0.0))
     capacity = float(
         drying_capacity(assembly, tu_hours, drying_climate).get("capacity_kg_m2", 0.0)
@@ -358,7 +410,7 @@ def drying_check(
 def moisture_limits_check(assembly: Assembly, wk_layers: List[Dict[str, float]]) -> List[Dict[str, float | bool]]:
     """Check x_uk' = xr' + Δx_dif < x_max for each layer.
 
-    wk_layers: list of dicts with keys index, delta_x_percent from condensation_mass_and_moisture.
+    wk_layers: list of dicts with keys index, delta_x_percent from condensate_amount.
     Returns list of {index, x_uk_prime, x_max, ok}.
     """
     out: List[Dict[str, float | bool]] = []
@@ -423,8 +475,8 @@ def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_h
     z_final = gp["z_final"]
     p_final = gp["p_final"]
     zones = gp["zones"]
-    cond_proxy = condensate_amount(p_line, p_sat, z_axis)
-    wk = condensation_mass_and_moisture(assembly, climate, tk_hours)
+    wk = condensate_amount(assembly, climate, tk_hours)
+    cond_proxy = wk["Wk_total"]
     drying = drying_capacity(assembly, tu_hours, None)
     # Determine if the drying period can remove accumulated condensate
     drying_ok = drying_check(assembly, climate, tk_hours, tu_hours)
@@ -454,45 +506,17 @@ def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_h
     }
 
 
-def condensation_mass_and_moisture(assembly: Assembly, climate: Climate, tk_hours: float) -> Dict[str, object]:
-    """Compute Wk [kg/m²] and Δx_dif per layer based on Glaser piecewise profile.
+def condensation_mass_and_moisture(
+    assembly: Assembly, climate: Climate, tk_hours: float
+) -> Dict[str, object]:
+    """Compatibility wrapper for :func:`condensate_amount`.
 
-    Wk_total = sum_k (g_before_k - g_after_k) * tk.
-    Distributes Wk per layer proportional to overlap length of zone with the layer.
+    The project historically exposed ``condensation_mass_and_moisture``.  It now
+    simply forwards to :func:`condensate_amount` which performs the actual
+    Bulgarian-method integration.
     """
-    gp = glaser_profile(assembly, climate)
-    zones = gp.get("zones", [])
-    z_axis = z_profile(assembly)
 
-    per_layer_wk = [0.0 for _ in assembly.layers]
-    Wk_total = 0.0
-    for z in zones:
-        dz_zone = max(0.0, z["end_z"] - z["start_z"])
-        if dz_zone <= 0:
-            continue
-        g_before = z.get("g_before", 0.0)
-        g_after = z.get("g_after", 0.0)
-        Wk_rate = max(0.0, g_before - g_after)  # kg/(m²·h)
-        Wk_total += Wk_rate * tk_hours
-        for i in range(len(assembly.layers)):
-            z0, z1 = z_axis[i], z_axis[i + 1]
-            overlap = max(0.0, min(z1, z["end_z"]) - max(z0, z["start_z"]))
-            if overlap > 0 and dz_zone > 0:
-                per_layer_wk[i] += Wk_rate * tk_hours * (overlap / dz_zone)
-
-    layers_out: List[Dict[str, float]] = []
-    for i, layer in enumerate(assembly.layers):
-        Wk_layer = per_layer_wk[i]
-        dz_phys = max(layer.d, 1e-9)
-        rho = max(layer.rho, 1e-9)
-        delta_x_percent = Wk_layer / (dz_phys * rho) * 100.0
-        layers_out.append({
-            "index": float(i),
-            "Wk_layer": Wk_layer,
-            "delta_x_percent": delta_x_percent,
-        })
-
-    return {"Wk_total": Wk_total, "layers": layers_out}
+    return condensate_amount(assembly, climate, tk_hours)
 
 
 def drying_capacity(assembly: Assembly, tu_hours: float, drying_climate: Optional[Climate]) -> Dict[str, float | bool]:

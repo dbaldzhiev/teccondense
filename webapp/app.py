@@ -10,11 +10,7 @@ if str(ROOT) not in sys.path:
 
 from condensation.core import analyze
 from condensation.dataclasses import Layer, Assembly, Climate
-try:
-    from condensation.materials import load_materials
-except Exception:  # fallback if module missing
-    def load_materials():
-        return []
+from condensation.materials import load_materials
 
 app = Flask(__name__)
 
