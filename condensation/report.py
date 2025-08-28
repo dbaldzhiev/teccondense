@@ -98,12 +98,12 @@ def report(results: dict) -> str:
     surface = results.get("surface", {})
     zones = results.get("zones", [])
     lis = [
-        f"<li>U-value: {results.get(''U'', float(''nan'')):.4f} W/m²·K</li>",
-        f"<li>ΣR: {results.get(''R_total'', float(''nan'')):.4f} m²·K/W</li>",
-        f"<li>q: {results.get(''q'', float(''nan'')):.3f} W/m²</li>",
-        f"<li>Surface: {''OK'' if not surface.get(''risk'') else ''Fail''} (θsi={surface.get(''theta_si'', float(''nan'')):.2f}°C vs θs={surface.get(''theta_s'', float(''nan'')):.2f}°C)</li>",
-        f"<li>pᵢ={results.get(''p_i'', float(''nan'')):.0f} Pa, pₑ={results.get(''p_e'', float(''nan'')):.0f} Pa</li>",
-        f"<li>Condensation: {''Yes'' if zones else ''No''}</li>",
+        f"<li>U-value: {results.get('U', float('nan')):.4f} W/m²·K</li>",
+        f"<li>ΣR: {results.get('R_total', float('nan')):.4f} m²·K/W</li>",
+        f"<li>q: {results.get('q', float('nan')):.3f} W/m²</li>",
+        f"<li>Surface: {'OK' if not surface.get('risk') else 'Fail'} (θsi={surface.get('theta_si', float('nan')):.2f}°C vs θs={surface.get('theta_s', float('nan')):.2f}°C)</li>",
+        f"<li>pᵢ={results.get('p_i', float('nan')):.0f} Pa, pₑ={results.get('p_e', float('nan')):.0f} Pa</li>",
+        f"<li>Condensation: {'Yes' if zones else 'No'}</li>",
     ]
 
     temp_chart = _plot_temperature(
