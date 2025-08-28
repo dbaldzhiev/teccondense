@@ -45,7 +45,8 @@ window.__appLoaded = true;
     dInput.addEventListener('input', () => { dSlider.value = dInput.value; });
     const sel = d.querySelector('.matSelect');
     sel.addEventListener('change', () => {
-      const m = materials.find(mm => mm.name === sel.value);
+      const idx = parseInt(sel.value, 10);
+      const m = Number.isNaN(idx) ? null : materials[idx];
       if (m) {
         d.querySelector('.lambda').value = m.lambda_;
         d.querySelector('.mu').value = m.mu;
@@ -56,7 +57,7 @@ window.__appLoaded = true;
       }
     });
     const fillSel = () => {
-      sel.innerHTML = '<option value="">—</option>' + materials.map(m => `<option>${m.name}</option>`).join('');
+      sel.innerHTML = '<option value="">—</option>' + materials.map((m,i) => `<option value="${i}">${m.name}</option>`).join('');
     };
     d.fillMaterials = fillSel;
     return d;

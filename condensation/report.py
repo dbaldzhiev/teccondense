@@ -1,4 +1,8 @@
-"""Generate HTML reports with charts and normative table snippets."""
+"""Generate HTML reports with charts and normative table snippets.
+
+This module is optional at runtime; if matplotlib or the tabulated tables are
+unavailable, the report gracefully degrades and still renders a compact summary.
+"""
 
 from __future__ import annotations
 
@@ -33,7 +37,7 @@ def _plot_temperature(xs: Iterable[float], ys: Iterable[float]) -> str:
         return ""
     fig, ax = plt.subplots()
     ax.plot(list(xs), list(ys))
-    ax.set_xlabel("Σd [m]")
+    ax.set_xlabel("Thickness x [m]")
     ax.set_ylabel("θ [°C]")
     ax.set_title("Temperature profile")
     return _encode_fig(fig)
@@ -45,7 +49,7 @@ def _plot_vapor(xs: Iterable[float], p: Iterable[float], ps: Iterable[float]) ->
     fig, ax = plt.subplots()
     ax.plot(list(xs), list(p), label="p")
     ax.plot(list(xs), list(ps), label="p_sat")
-    ax.set_xlabel("Σ(μ·d) [m²·Pa·h/kg]")
+    ax.set_xlabel("z [m²Pa·h/kg]")
     ax.set_ylabel("p [Pa]")
     ax.set_title("Vapor pressure profile")
     ax.legend()
@@ -124,13 +128,11 @@ def report(results: dict) -> str:
         *lis,
         "</ul>",
         "<h3>Charts</h3>",
-        f"<img src='data:image/png;base64,{temp_chart}' alt='Temperature chart' />" if temp_chart else "",
-        f"<img src='data:image/png;base64,{vapor_chart}' alt='Vapor chart' />" if vapor_chart else "",
+        (f"<img src='data:image/png;base64,{temp_chart}' alt='Temperature chart' />" if temp_chart else ""),
+        (f"<img src='data:image/png;base64,{vapor_chart}' alt='Vapor chart' />" if vapor_chart else ""),
         "<h3>Tab. 2.1 excerpt</h3>",
         tab21_html,
         "<h3>Tab. 2.2 excerpt</h3>",
         tab22_html,
     ]
     return "\n".join([p for p in parts if p])
-
-
