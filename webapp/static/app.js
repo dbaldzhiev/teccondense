@@ -15,9 +15,9 @@ window.__appLoaded = true;
         <input type="text" class="name" value="Layer ${idx+1}">
       </div>
       <div>
-        <label>Thickness (m)</label>
-        <input type="number" step="0.001" class="d" value="0.100">
-        <input type="range" min="0.005" max="0.500" step="0.001" value="0.100" class="dSlider">
+        <label>Thickness (cm)</label>
+        <input type="number" step="0.1" class="d" value="10.0">
+        <input type="range" min="0.5" max="50.0" step="0.1" value="10.0" class="dSlider">
       </div>
       <div>
         <label>λ (W/mK)</label>
@@ -41,7 +41,7 @@ window.__appLoaded = true;
       </div>`;
     const dInput = d.querySelector('.d');
     const dSlider = d.querySelector('.dSlider');
-    dSlider.addEventListener('input', () => { dInput.value = (+dSlider.value).toFixed(3); });
+    dSlider.addEventListener('input', () => { dInput.value = (+dSlider.value).toFixed(1); });
     dInput.addEventListener('input', () => { dSlider.value = dInput.value; });
     const sel = d.querySelector('.matSelect');
     sel.addEventListener('change', () => {
@@ -60,6 +60,27 @@ window.__appLoaded = true;
       sel.innerHTML = '<option value="">—</option>' + materials.map((m,i) => `<option value="${i}">${m.name}</option>`).join('');
     };
     d.fillMaterials = fillSel;
+    // Apply sensible defaults for first two layers
+    // L1: 25 cm Brick, L2: 10 cm Mineral wool
+    try{
+      if (idx === 0){
+        d.querySelector('.name').value = 'Brick';
+        dInput.value = '25.0'; dSlider.value = '25.0';
+        d.querySelector('.lambda').value = '0.790';
+        d.querySelector('.mu').value = '7';
+        d.querySelector('.rho').value = '1800';
+        d.querySelector('.xr').value = '2.0';
+        d.querySelector('.xmax').value = '14.0';
+      } else if (idx === 1){
+        d.querySelector('.name').value = 'Mineral wool';
+        dInput.value = '10.0'; dSlider.value = '10.0';
+        d.querySelector('.lambda').value = '0.040';
+        d.querySelector('.mu').value = '1';
+        d.querySelector('.rho').value = '40';
+        d.querySelector('.xr').value = '5.0';
+        d.querySelector('.xmax').value = '20.0';
+      }
+    }catch(_){/* ignore */}
     return d;
   }
 
@@ -89,28 +110,29 @@ window.__appLoaded = true;
     const v = sel ? sel.value : '';
     if (v) document.getElementById('theta_e').value = v;
   }
+  function num(v){ return parseFloat(String(v || '0').replace(',', '.')); }
   window.runAnalyze = async function(){
     const payloadLayers = layers.map(el => ({
       name: el.querySelector('.name').value,
-      d: parseFloat(el.querySelector('.d').value || '0'),
-      lambda_: parseFloat(el.querySelector('.lambda').value || '0'),
-      mu: parseFloat(el.querySelector('.mu').value || '0'),
-      rho: parseFloat(el.querySelector('.rho').value || '0'),
-      xr_percent: parseFloat(el.querySelector('.xr').value || '0'),
-      xmax_percent: parseFloat(el.querySelector('.xmax').value || '0'),
+      d: num(el.querySelector('.d').value) / 100.0, // cm → m
+      lambda_: num(el.querySelector('.lambda').value),
+      mu: num(el.querySelector('.mu').value),
+      rho: num(el.querySelector('.rho').value),
+      xr_percent: num(el.querySelector('.xr').value),
+      xmax_percent: num(el.querySelector('.xmax').value),
     })).filter(L => L.d > 0 && L.lambda_ > 0);
     if (!payloadLayers.length){ alert('Add at least one valid layer'); return; }
-    const tk = parseFloat(document.getElementById('tk')?.value || '1440');
-    const tu = parseFloat(document.getElementById('tu')?.value || '1440');
+    const tk = num(document.getElementById('tk')?.value || '1440');
+    const tu = num(document.getElementById('tu')?.value || '1440');
     const payload = {
       layers: payloadLayers,
-      Rsi: parseFloat(document.getElementById('Rsi').value || '0.13'),
-      Rse: parseFloat(document.getElementById('Rse').value || '0.04'),
+      Rsi: num(document.getElementById('Rsi').value || '0.13'),
+      Rse: num(document.getElementById('Rse').value || '0.04'),
       climate: {
-        theta_i: parseFloat(document.getElementById('theta_i').value || '20'),
-        phi_i: parseFloat(document.getElementById('phi_i').value || '65'),
-        theta_e: parseFloat(document.getElementById('theta_e').value || '5'),
-        phi_e: parseFloat(document.getElementById('phi_e').value || '90'),
+        theta_i: num(document.getElementById('theta_i').value || '20'),
+        phi_i: num(document.getElementById('phi_i').value || '65'),
+        theta_e: num(document.getElementById('theta_e').value || '5'),
+        phi_e: num(document.getElementById('phi_e').value || '90'),
       },
       tk_hours: tk,
       tu_hours: tu,
@@ -257,7 +279,7 @@ document.getElementById('zones').innerHTML = zonesHtml;drawAssembly(r.layers || 
       ctx.fillRect(X0, 0, (X1-X0), ih);
       ctx.strokeStyle='#1f2937'; ctx.strokeRect(X0, 0, (X1-X0), ih);
       // Label
-      ctx.fillStyle='#e5e7eb'; ctx.font='12px sans-serif'; const label = `${name} (${(x1-x0).toFixed(3)} m)`; ctx.fillText(label, X0+6, 16);
+      ctx.fillStyle='#e5e7eb'; ctx.font='12px sans-serif'; const label = `${name} (${((x1-x0)*100).toFixed(1)} cm)`; ctx.fillText(label, X0+6, 16);
       x0 = x1;
     }
     // Interfaces

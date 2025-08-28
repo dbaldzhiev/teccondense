@@ -144,9 +144,9 @@
             <input type="text" class="name" value="Layer ${idx+1}">
           </div>
           <div>
-            <label>Thickness (m)</label>
-            <input type="number" step="0.001" class="d" value="0.100">
-            <input type="range" min="0.005" max="0.500" step="0.001" value="0.100" class="dSlider">
+            <label>Thickness (cm)</label>
+            <input type="number" step="0.1" class="d" value="10.0">
+            <input type="range" min="0.5" max="50.0" step="0.1" value="10.0" class="dSlider">
           </div>
           <div>
             <label>λ (W/mK)</label>
@@ -171,7 +171,7 @@
         // sync slider
         const dInput = d.querySelector('.d');
         const dSlider = d.querySelector('.dSlider');
-        dSlider.addEventListener('input', () => { dInput.value = (+dSlider.value).toFixed(3); });
+        dSlider.addEventListener('input', () => { dInput.value = (+dSlider.value).toFixed(1); });
         dInput.addEventListener('input', () => { dSlider.value = dInput.value; });
         // material select
         const sel = d.querySelector('.matSelect');
@@ -192,6 +192,28 @@
           sel.innerHTML = '<option value="">—</option>' + materials.map((m,i) => `<option value="${i}">${m.name}</option>`).join('');
         };
         d.fillMaterials = fillSel;
+        // Defaults for first two layers
+        try {
+          if (idx === 0){
+            d.querySelector('.name').value = 'Brick';
+            d.querySelector('.d').value = '25.0';
+            d.querySelector('.dSlider').value = '25.0';
+            d.querySelector('.lambda').value = '0.790';
+            d.querySelector('.mu').value = '7';
+            d.querySelector('.rho').value = '1800';
+            d.querySelector('.xr').value = '2.0';
+            d.querySelector('.xmax').value = '14.0';
+          } else if (idx === 1){
+            d.querySelector('.name').value = 'Mineral wool';
+            d.querySelector('.d').value = '10.0';
+            d.querySelector('.dSlider').value = '10.0';
+            d.querySelector('.lambda').value = '0.040';
+            d.querySelector('.mu').value = '1';
+            d.querySelector('.rho').value = '40';
+            d.querySelector('.xr').value = '5.0';
+            d.querySelector('.xmax').value = '20.0';
+          }
+        } catch (e) {}
         return d;
       };
       const layers = [];
@@ -216,26 +238,27 @@
           }
         } catch (e) { console.warn(e); }
       };
+      const num = (v) => parseFloat(String(v||'0').replace(',', '.'));
       window.runAnalyze = async () => {
         const layersPayload = layers.map(el => ({
           name: el.querySelector('.name').value,
-          d: parseFloat(el.querySelector('.d').value || '0'),
-          lambda_: parseFloat(el.querySelector('.lambda').value || '0'),
-          mu: parseFloat(el.querySelector('.mu').value || '0'),
-          rho: parseFloat(el.querySelector('.rho').value || '0'),
-          xr_percent: parseFloat(el.querySelector('.xr').value || '0'),
-          xmax_percent: parseFloat(el.querySelector('.xmax').value || '0'),
+          d: num(el.querySelector('.d').value) / 100.0,
+          lambda_: num(el.querySelector('.lambda').value),
+          mu: num(el.querySelector('.mu').value),
+          rho: num(el.querySelector('.rho').value),
+          xr_percent: num(el.querySelector('.xr').value),
+          xmax_percent: num(el.querySelector('.xmax').value),
         })).filter(L => L.d > 0 && L.lambda_ > 0);
         if (!layersPayload.length) { alert('Add at least one valid layer'); return; }
         const payload = {
           layers: layersPayload,
-          Rsi: parseFloat(document.getElementById('Rsi').value || '0.13'),
-          Rse: parseFloat(document.getElementById('Rse').value || '0.04'),
+          Rsi: num(document.getElementById('Rsi').value || '0.13'),
+          Rse: num(document.getElementById('Rse').value || '0.04'),
           climate: {
-            theta_i: parseFloat(document.getElementById('theta_i').value || '20'),
-            phi_i: parseFloat(document.getElementById('phi_i').value || '65'),
-            theta_e: parseFloat(document.getElementById('theta_e').value || '5'),
-            phi_e: parseFloat(document.getElementById('phi_e').value || '90'),
+            theta_i: num(document.getElementById('theta_i').value || '20'),
+            phi_i: num(document.getElementById('phi_i').value || '65'),
+            theta_e: num(document.getElementById('theta_e').value || '5'),
+            phi_e: num(document.getElementById('phi_e').value || '90'),
           }
         };
         const res = await fetch('/analyze', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -249,7 +272,7 @@
           `Wk_total=${r.Wk_total.toFixed(4)} kg/m² over tk=1440h, Drying capacity=${r.drying_capacity.toFixed(4)} kg/m² → OK=${r.drying_ok ? 'Yes':'No'}`
         );
         const zones = r.zones || [];
-        document.getElementById('zones').textContent = zones.length ? zones.map(z => `(${z.start_z.toFixed(3)} → ${z.end_z.toFixed(3)}) maxΔp=${z.max_excess_pa.toFixed(0)} Pa`).join('\n') : '—';
+        document.getElementById('zones').textContent = zones.length ? zones.map(z => `(${z.start_z.toFixed(3)} → ${z.end_z.toFixed(3)})`).join('\n') : '—';
         drawAssembly(r.layers || [], r.thickness_axis, r.theta_profile, r.zones || [], r.vapor_axis);
         drawTemp(r.thickness_axis, r.theta_profile);
         drawVapor(r.vapor_axis, r.p_line, r.p_sat, r.zones || [], r.vapor_axis_final, r.p_final);
@@ -276,7 +299,7 @@
         ctx.restore(); }
       function drawAssembly(layers, xAxis, temps, zones, zAxis){
         const c=document.getElementById('chartAssembly'); const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); const w=c.width,h=c.height; const pad=40; const xmin=Math.min(...xAxis), xmax=Math.max(...xAxis); const ymin=Math.min(...temps), ymax=Math.max(...temps); ctx.strokeStyle='#444'; ctx.strokeRect(0,0,w,h); ctx.save(); ctx.translate(pad,pad); const iw=w-2*pad, ih=h-2*pad;
-        let x0=xAxis[0]||0; for (let i=1;i<xAxis.length;i++){ const x1=xAxis[i]; const X0=linMap(x0, xmin,xmax,0,iw), X1=linMap(x1, xmin,xmax,0,iw); ctx.fillStyle='rgba(255,255,255,0.05)'; ctx.fillRect(X0,0,X1-X0,ih); ctx.strokeStyle='#1f2937'; ctx.strokeRect(X0,0,X1-X0,ih); const name=layers[i-1]?.name||`L${i}`; ctx.fillStyle='#e5e7eb'; ctx.font='12px sans-serif'; ctx.fillText(`${name} (${(x1-x0).toFixed(3)} m)`, X0+6, 16); x0=x1; }
+        let x0=xAxis[0]||0; for (let i=1;i<xAxis.length;i++){ const x1=xAxis[i]; const X0=linMap(x0, xmin,xmax,0,iw), X1=linMap(x1, xmin,xmax,0,iw); ctx.fillStyle='rgba(255,255,255,0.05)'; ctx.fillRect(X0,0,X1-X0,ih); ctx.strokeStyle='#1f2937'; ctx.strokeRect(X0,0,X1-X0,ih); const name=layers[i-1]?.name||`L${i}`; ctx.fillStyle='#e5e7eb'; ctx.font='12px sans-serif'; ctx.fillText(`${name} (${((x1-x0)*100).toFixed(1)} cm)`, X0+6, 16); x0=x1; }
         // interfaces
         ctx.strokeStyle='#374151'; for (let i=0;i<xAxis.length;i++){ const X=linMap(xAxis[i], xmin,xmax,0,iw); ctx.beginPath(); ctx.moveTo(X,0); ctx.lineTo(X,ih); ctx.stroke(); }
         // zones
@@ -284,7 +307,8 @@
         // temperature
         ctx.beginPath(); for(let i=0;i<xAxis.length;i++){ const X=linMap(xAxis[i], xmin,xmax,0,iw); const Y=linMap(temps[i], ymin,ymax, ih,0); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);} ctx.strokeStyle='#60a5fa'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
       }
-      // init with one layer
+      // init with two default layers
+      addLayer();
       addLayer();
     }
   </script>
