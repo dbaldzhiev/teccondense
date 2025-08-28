@@ -331,13 +331,28 @@ def glaser_profile(assembly: Assembly, climate: Climate) -> Dict[str, object]:
     return {"z_axis": z_axis, "p_sat": p_sat, "p_linear": p_lin, "z_final": z_final, "p_final": p_final, "zones": zones_out}
 
 
-def drying_check(*args, **kwargs) -> bool:
-    """Placeholder: drying feasibility during tu period.
+def drying_check(
+    assembly: Assembly,
+    climate: Climate,
+    tk_hours: float,
+    tu_hours: float,
+    drying_climate: Optional[Climate] = None,
+) -> bool:
+    """Return True if drying during ``tu`` can remove condensate from ``tk``.
 
-    Returns True if drying likely, False if persistent moisture expected.
-    TODO: Implement using reverse gradients and tk/tu conditions.
+    The function first estimates the amount of condensate accumulated during the
+    condensation period ``tk`` using :func:`condensation_mass_and_moisture`.  It
+    then computes the reverse vapour flow possible during the drying period
+    ``tu`` via :func:`drying_capacity`.  Drying is considered adequate only when
+    the drying capacity exceeds the accumulated condensate mass ``Wk_total``.
     """
-    return True
+
+    wk = condensation_mass_and_moisture(assembly, climate, tk_hours)
+    wk_total = float(wk.get("Wk_total", 0.0))
+    capacity = float(
+        drying_capacity(assembly, tu_hours, drying_climate).get("capacity_kg_m2", 0.0)
+    )
+    return capacity >= wk_total
 
 
 def moisture_limits_check(assembly: Assembly, wk_layers: List[Dict[str, float]]) -> List[Dict[str, float | bool]]:
@@ -411,11 +426,8 @@ def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_h
     cond_proxy = condensate_amount(p_line, p_sat, z_axis)
     wk = condensation_mass_and_moisture(assembly, climate, tk_hours)
     drying = drying_capacity(assembly, tu_hours, None)
-    drying_ok = None
-    try:
-        drying_ok = (drying["capacity_kg_m2"] >= wk["Wk_total"])  # type: ignore[index]
-    except Exception:
-        drying_ok = None
+    # Determine if the drying period can remove accumulated condensate
+    drying_ok = drying_check(assembly, climate, tk_hours, tu_hours)
     surface = surface_condensation_risk(assembly, climate)
     p_i, p_e = partial_pressures(climate)
     return {
