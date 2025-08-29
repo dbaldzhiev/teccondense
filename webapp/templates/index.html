@@ -90,7 +90,7 @@
           </div>
         </div>
         <div class="actions" style="margin-top:10px">
-          <button class="btn" onclick="runAnalyze()" type="button">Calculate</button>
+          <span style="font-size:12px;color:#9ca3af">Results update automatically.</span>
         </div>
       </div>
     </div>
@@ -98,7 +98,7 @@
     <div class="grid" style="margin-top:16px">
       <div class="card">
         <h3>Results</h3>
-        <div id="results">Fill layers and click Calculate.</div>
+        <div id="results">Fill layers to see results.</div>
       </div>
       <div class="card">
         <h3>Condensation Zones</h3>
@@ -223,10 +223,12 @@
         layers.push(el);
         layersDiv.appendChild(el);
         if (materials.length) el.fillMaterials();
+        scheduleCalc();
       };
       window.removeLayer = () => {
         const el = layers.pop();
         if (el) el.remove();
+        scheduleCalc();
       };
       window.loadMaterials = async () => {
         try {
@@ -237,6 +239,13 @@
             layers.forEach(el => el.fillMaterials && el.fillMaterials());
           }
         } catch (e) { console.warn(e); }
+        scheduleCalc();
+      };
+      window.applyClimatePreset = () => {
+        const sel = document.getElementById('climatePreset');
+        const v = sel ? sel.value : '';
+        if (v) document.getElementById('theta_e').value = v;
+        scheduleCalc();
       };
       const num = (v) => parseFloat(String(v||'0').replace(',', '.'));
       window.runAnalyze = async () => {
@@ -249,7 +258,11 @@
           xr_percent: num(el.querySelector('.xr').value),
           xmax_percent: num(el.querySelector('.xmax').value),
         })).filter(L => L.d > 0 && L.lambda_ > 0);
-        if (!layersPayload.length) { alert('Add at least one valid layer'); return; }
+        if (!layersPayload.length) {
+          document.getElementById('results').textContent = 'Add at least one valid layer';
+          document.getElementById('zones').textContent = '-';
+          return;
+        }
         const payload = {
           layers: layersPayload,
           Rsi: num(document.getElementById('Rsi').value || '0.13'),
@@ -277,6 +290,16 @@
         drawTemp(r.thickness_axis, r.theta_profile);
         drawVapor(r.vapor_axis, r.p_line, r.p_sat, r.zones || [], r.vapor_axis_final, r.p_final);
       };
+      const scheduleCalc = (() => {
+        let t;
+        return () => { clearTimeout(t); t = setTimeout(() => runAnalyze(), 200); };
+      })();
+      ['theta_i','phi_i','theta_e','phi_e','Rsi','Rse','tk','tu'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', scheduleCalc);
+      });
+      document.addEventListener('input', (e) => { if (e.target.closest('#layers')) scheduleCalc(); });
+      document.addEventListener('change', (e) => { if (e.target.closest('#layers')) scheduleCalc(); });
       function linMap(v, v0,v1, p0,p1){ return p0 + (v - v0) * (p1 - p0) / (v1 - v0 || 1); }
       function mapZtoX(z, zAxis, xAxis){
         if (!zAxis || !xAxis || zAxis.length !== xAxis.length) return 0;
@@ -310,6 +333,7 @@
       // init with two default layers
       addLayer();
       addLayer();
+      scheduleCalc();
     }
   </script>
 </body>
