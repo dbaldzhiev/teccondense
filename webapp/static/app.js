@@ -41,8 +41,8 @@ window.__appLoaded = true;
       </div>`;
     const dInput = d.querySelector('.d');
     const dSlider = d.querySelector('.dSlider');
-    dSlider.addEventListener('input', () => { dInput.value = (+dSlider.value).toFixed(1); });
-    dInput.addEventListener('input', () => { dSlider.value = dInput.value; });
+    dSlider.addEventListener('input', () => { dInput.value = (+dSlider.value).toFixed(1); scheduleCalc(); });
+    dInput.addEventListener('input', () => { dSlider.value = dInput.value; scheduleCalc(); });
     const sel = d.querySelector('.matSelect');
     sel.addEventListener('change', () => {
       const idx = parseInt(sel.value, 10);
@@ -55,6 +55,11 @@ window.__appLoaded = true;
         d.querySelector('.xmax').value = m.xmax_percent;
         d.querySelector('.name').value = m.name;
       }
+      scheduleCalc();
+    });
+    // trigger recalculation when any layer field changes
+    d.querySelectorAll('input').forEach(inp => {
+      if (inp !== dInput && inp !== dSlider) inp.addEventListener('input', scheduleCalc);
     });
     const fillSel = () => {
       sel.innerHTML = '<option value="">—</option>' + materials.map((m,i) => `<option value="${i}">${m.name}</option>`).join('');
@@ -90,10 +95,12 @@ window.__appLoaded = true;
     layers.push(el);
     layersDiv.appendChild(el);
     if (materials.length) el.fillMaterials();
+    scheduleCalc();
   }
   window.removeLayer = function(){
     const el = layers.pop();
     if (el) el.remove();
+    scheduleCalc();
   }
   window.loadMaterials = async function(){
     try{
@@ -104,11 +111,13 @@ window.__appLoaded = true;
         layers.forEach(el => el.fillMaterials && el.fillMaterials());
       }
     }catch(e){ console.warn(e); }
+    scheduleCalc();
   }
   window.applyClimatePreset = function(){
     const sel = document.getElementById('climatePreset');
     const v = sel ? sel.value : '';
     if (v) document.getElementById('theta_e').value = v;
+    scheduleCalc();
   }
   function num(v){ return parseFloat(String(v || '0').replace(',', '.')); }
   window.runAnalyze = async function(){
@@ -121,7 +130,12 @@ window.__appLoaded = true;
       xr_percent: num(el.querySelector('.xr').value),
       xmax_percent: num(el.querySelector('.xmax').value),
     })).filter(L => L.d > 0 && L.lambda_ > 0);
-    if (!payloadLayers.length){ alert('Add at least one valid layer'); return; }
+    if (!payloadLayers.length){
+      const out = document.getElementById('results');
+      out.textContent = 'Add at least one valid layer';
+      document.getElementById('zones').textContent = '-';
+      return;
+    }
     const tk = num(document.getElementById('tk')?.value || '1440');
     const tu = num(document.getElementById('tu')?.value || '1440');
     const payload = {
@@ -202,6 +216,16 @@ document.getElementById('zones').innerHTML = zonesHtml;drawAssembly(r.layers || 
     drawTemp(r.thickness_axis, r.theta_profile);
     drawVapor(r.vapor_axis, r.p_line, r.p_sat, r.zones, r.vapor_axis_final, r.p_final);
   }
+
+  const scheduleCalc = (() => {
+    let t;
+    return () => { clearTimeout(t); t = setTimeout(() => window.runAnalyze(), 200); };
+  })();
+
+  ['theta_i','phi_i','theta_e','phi_e','Rsi','Rse','tk','tu'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', scheduleCalc);
+  });
 
   function linMap(v, v0,v1, p0,p1){ return p0 + (v - v0) * (p1 - p0) / (v1 - v0 || 1); }
   function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
@@ -295,6 +319,7 @@ document.getElementById('zones').innerHTML = zonesHtml;drawAssembly(r.layers || 
 
   // init
   window.addLayer();
+  scheduleCalc();
 })();
 
 
