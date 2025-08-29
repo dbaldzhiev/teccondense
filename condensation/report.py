@@ -122,6 +122,12 @@ def report(results: dict) -> str:
     tab21_html = _tab21(results.get("theta_i"), results.get("phi_i"))
     tab22_html = _tab22(results.get("theta_profile", []))
 
+    proof = results.get("proof")
+    if isinstance(proof, list) and proof:
+        proof_html = "<h3>Calculation steps</h3><pre>" + "\n".join(str(s) for s in proof) + "</pre>"
+    else:
+        proof_html = ""
+
     parts = [
         "<h2>Condensation Risk Report</h2>",
         "<ul>",
@@ -134,5 +140,6 @@ def report(results: dict) -> str:
         tab21_html,
         "<h3>Tab. 2.2 excerpt</h3>",
         tab22_html,
+        proof_html,
     ]
     return "\n".join([p for p in parts if p])

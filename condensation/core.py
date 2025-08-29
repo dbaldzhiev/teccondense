@@ -462,12 +462,28 @@ def surface_condensation_risk(assembly: Assembly, climate: Climate) -> Dict[str,
     return {"theta_si": theta_si, "theta_s": theta_s, "risk": risk, "theta_se": theta_se, "theta_s_e": theta_s_e, "risk_e": risk_e}
 
 
-def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_hours: float = 1440.0) -> Dict[str, object]:
+def analyze(
+    assembly: Assembly,
+    climate: Climate,
+    tk_hours: float = 1440.0,
+    tu_hours: float = 1440.0,
+    verbose: bool = False,
+) -> Dict[str, object]:
     """End-to-end condensation analysis with current capabilities.
 
-    Returns a dict suitable for reporting and UI consumption.
+    When ``verbose`` is ``True`` the returned dict additionally contains a
+    ``"proof"`` key with human readable step-by-step calculations.
     """
+    steps: List[str] = []
+
     U, R_total = u_value(assembly)
+    if verbose:
+        R_layers = sum(layer.d / layer.lambda_ for layer in assembly.layers)
+        steps.append(
+            f"R_total = Rsi + Σ(d/λ) + Rse = {assembly.Rsi:.3f} + {R_layers:.3f} + {assembly.Rse:.3f} = {R_total:.3f} m²K/W"
+        )
+        steps.append(f"U = 1 / R_total = 1 / {R_total:.3f} = {U:.4f} W/m²K")
+
     temps = temperature_profile(assembly, climate)
     z_axis, p_line = vapor_pressure_profile(assembly, climate)
     p_sat = saturation_pressure_profile(temps)
@@ -482,10 +498,17 @@ def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_h
     drying_ok = drying_check(assembly, climate, tk_hours, tu_hours)
     surface = surface_condensation_risk(assembly, climate)
     p_i, p_e = partial_pressures(climate)
-    return {
+
+    q = U * (climate.theta_i - climate.theta_e) if math.isfinite(U) else float("nan")
+    if verbose:
+        steps.append(
+            f"q = U * (θi - θe) = {U:.4f} * ({climate.theta_i:.1f} - {climate.theta_e:.1f}) = {q:.3f} W/m²"
+        )
+
+    result = {
         "U": U,
         "R_total": R_total,
-        "q": U * (climate.theta_i - climate.theta_e) if math.isfinite(U) else float("nan"),
+        "q": q,
         "theta_profile": temps,
         "thickness_axis": thickness_axis(assembly),
         "vapor_axis": z_axis,
@@ -504,6 +527,11 @@ def analyze(assembly: Assembly, climate: Climate, tk_hours: float = 1440.0, tu_h
         "p_i": p_i,
         "p_e": p_e,
     }
+
+    if verbose:
+        result["proof"] = steps
+
+    return result
 
 
 def condensation_mass_and_moisture(
